@@ -3,8 +3,8 @@ package main
 import (
 	"encoding/json"
 	"log"
-	"sync"
 
+	mapset "github.com/deckarep/golang-set/v2"
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 )
 
@@ -27,10 +27,9 @@ type ReqBody struct {
 }
 
 type state struct {
-	store map[int]struct{}
+	store mapset.Set[int]
 	topo  Topology
-	mu    sync.RWMutex
-	n     *maelstrom.Node
+	node  *maelstrom.Node
 }
 
 func (s *state) handleBroadcast(msg maelstrom.Message) error {
@@ -40,30 +39,25 @@ func (s *state) handleBroadcast(msg maelstrom.Message) error {
 		return err
 	}
 
-	s.mu.RLock()
-	_, isMessageInStore := s.store[body.Message]
-	s.mu.RUnlock()
-	if isMessageInStore {
+	if s.store.ContainsOne(body.Message) {
 		return nil
 	}
 
-	s.mu.Lock()
-	s.store[body.Message] = struct{}{}
-	s.mu.Unlock()
+	s.store.Add(body.Message)
 
-	for _, dst := range s.topo[s.n.ID()] {
+	for _, dst := range s.topo[s.node.ID()] {
 		if dst == msg.Src {
 			continue
 		}
 
-		s.n.Send(dst, ReqBody{
+		s.node.Send(dst, ReqBody{
 			Type:    "broadcast",
 			Message: body.Message,
 		})
 	}
 
 	if body.MsgId != nil {
-		return s.n.Reply(msg, ResBody{
+		return s.node.Reply(msg, ResBody{
 			Type: "broadcast_ok",
 		})
 	}
@@ -72,14 +66,9 @@ func (s *state) handleBroadcast(msg maelstrom.Message) error {
 }
 
 func (s *state) handleRead(msg maelstrom.Message) error {
-	s.mu.RLock()
-	copyStore := make([]int, 0, len(s.store))
-	for k := range s.store {
-		copyStore = append(copyStore, k)
-	}
-	s.mu.RUnlock()
+	copyStore := s.store.ToSlice()
 
-	return s.n.Reply(msg, ResBody{
+	return s.node.Reply(msg, ResBody{
 		Type:     "read_ok",
 		Messages: &copyStore,
 	})
@@ -93,22 +82,22 @@ func (s *state) handleTopo(msg maelstrom.Message) error {
 
 	s.topo = body.Topology
 
-	return s.n.Reply(msg, ReqBody{
+	return s.node.Reply(msg, ReqBody{
 		Type: "topology_ok",
 	})
 }
 
 func main() {
 	s := state{
-		store: map[int]struct{}{},
-		n:     maelstrom.NewNode(),
+		store: mapset.NewSet[int](),
+		node:  maelstrom.NewNode(),
 	}
 
-	s.n.Handle("broadcast", s.handleBroadcast)
-	s.n.Handle("read", s.handleRead)
-	s.n.Handle("topology", s.handleTopo)
+	s.node.Handle("broadcast", s.handleBroadcast)
+	s.node.Handle("read", s.handleRead)
+	s.node.Handle("topology", s.handleTopo)
 
-	if err := s.n.Run(); err != nil {
+	if err := s.node.Run(); err != nil {
 		log.Fatal(err)
 	}
 }
