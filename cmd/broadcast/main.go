@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"log"
+	"time"
 
 	mapset "github.com/deckarep/golang-set/v2"
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
@@ -27,14 +28,14 @@ type ReqBody struct {
 }
 
 type state struct {
-	store mapset.Set[int]
-	topo  Topology
-	node  *maelstrom.Node
+	store    mapset.Set[int]
+	topo     Topology
+	neighbor mapset.Set[string]
+	node     *maelstrom.Node
 }
 
 func (s *state) handleBroadcast(msg maelstrom.Message) error {
 	var body ReqBody
-
 	if err := json.Unmarshal(msg.Body, &body); err != nil {
 		return err
 	}
@@ -44,22 +45,24 @@ func (s *state) handleBroadcast(msg maelstrom.Message) error {
 	}
 
 	s.store.Add(body.Message)
+	s.node.Reply(msg, ResBody{
+		Type: "broadcast_ok",
+	})
 
-	for _, dst := range s.topo[s.node.ID()] {
-		if dst == msg.Src {
-			continue
+	queue := s.neighbor.Clone()
+	queue.Remove(msg.Src)
+
+	for !queue.IsEmpty() {
+		for _, dst := range queue.ToSlice() {
+			s.node.RPC(dst, ReqBody{
+				Type:    "broadcast",
+				Message: body.Message,
+			}, func(msg maelstrom.Message) error {
+				queue.Remove(dst)
+				return nil
+			})
 		}
-
-		s.node.Send(dst, ReqBody{
-			Type:    "broadcast",
-			Message: body.Message,
-		})
-	}
-
-	if body.MsgId != nil {
-		return s.node.Reply(msg, ResBody{
-			Type: "broadcast_ok",
-		})
+		time.Sleep(1 * time.Second)
 	}
 
 	return nil
@@ -80,7 +83,7 @@ func (s *state) handleTopo(msg maelstrom.Message) error {
 		return err
 	}
 
-	s.topo = body.Topology
+	s.neighbor = mapset.NewSet(body.Topology[s.node.ID()]...)
 
 	return s.node.Reply(msg, ReqBody{
 		Type: "topology_ok",

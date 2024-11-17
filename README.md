@@ -23,10 +23,19 @@ make broadcast-a
 make broadcast-b
 ```
 A few optimization:
-- To avoid message loops (nodes keep passing the message around), each node can check if the message is already stored 
-- During inter-broadcasting (sending message between nodes and not with clients) 
-    - A node doesn't need to send to its neighbor if the message came from that neighbor
-    - A node doesn't need to send `broadcast_ok` response if the broadcast request came from a neighbor instead of a client (can be checked by the field `msg_id` in message body)
+1. To avoid message loops (nodes keep passing the message around), each node can check if the message is already stored 
+2. During inter-broadcasting (sending message between nodes and not with clients) 
+    a. A node doesn't need to send to its neighbor if the message came from that neighbor
+    b. A node doesn't need to send `broadcast_ok` response if the broadcast request came from a neighbor instead of a client (can be checked by the field `msg_id` in message body)
+
+### 3c: Fault Tolerant Broadcast
+```sh
+make broadcast-c
+```
+- The main idea is to retry internal `broadcast` until the destination node sends back a `broadcast_ok` response. This makes the 2b optimization above obsolete since every `broadcast` requires a response now.
+- A simple implementation is for every `broadcast` received from a client, send it to every neighbor, and if the node doesn't receive a response after say 1 second, resend the message again 
+    - Note: you will need to send the `broadcast_ok` response after adding the message to the node and before sending the internal `broadcast`s since the client will timeout after a while 
+    - This approach is not ideal when using `Node.RPC()` since the callback is saved per `msg_id`. So if a `broadcast` never receive a response then that callback will never be deleted.
 
 ## Side Notes
 - [Having multiple binaries in a single project](https://ieftimov.com/posts/golang-package-multiple-binaries)
