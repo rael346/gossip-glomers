@@ -1,6 +1,9 @@
+debug:
+	sudo ./maelstrom serve
+
 echo:
 	go build -o build/echo cmd/echo/main.go
-	maelstrom test \
+	./maelstrom test \
 		-w echo \
 		--bin ./build/echo \
 		--node-count 1 \
@@ -8,7 +11,7 @@ echo:
 
 idgen:
 	go build -o build/idgen cmd/idgen/main.go
-	maelstrom test \
+	./maelstrom test \
 		-w unique-ids \
 		--bin ./build/idgen \
 		--time-limit 30 \
@@ -19,7 +22,7 @@ idgen:
 
 broadcast-a:
 	go build -o build/broadcast cmd/broadcast/main.go
-	maelstrom test \
+	./maelstrom test \
 		-w broadcast \
 		--bin ./build/broadcast \
 		--node-count 1 \
@@ -28,9 +31,19 @@ broadcast-a:
 
 broadcast-b:
 	go build -o build/broadcast cmd/broadcast/main.go
-	maelstrom test \
+	./maelstrom test \
 		-w broadcast \
 		--bin ./build/broadcast \
 		--node-count 5 \
 		--time-limit 20 \
 		--rate 10 \
+
+broadcast-c:
+	go build -o build/broadcast cmd/broadcast/main.go
+	./maelstrom test \
+		-w broadcast \
+		--bin ./build/broadcast \
+		--node-count 5 \
+		--time-limit 20 \
+		--rate 10 \
+		--nemesis partition \
