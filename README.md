@@ -37,6 +37,80 @@ make broadcast-c
     - Note: you will need to send the `broadcast_ok` response after adding the message to the node and before sending the internal `broadcast`s since the client will timeout after a while 
     - This approach is not ideal when using `Node.RPC()` since the callback is saved per `msg_id`. So if a `broadcast` never receive a response then that callback will never be deleted.
 
+### 3d: Efficient Broadcast, Part I
+```sh
+make broadcast-d
+```
+- The strategy from 3c still works, but needs a different topology configuration to get the required performance
+    - `--topology grid`:
+        ```
+        ...
+
+        :net {:all {:send-count 99026,
+                     :recv-count 99026,
+                     :msg-count 99026,
+                     :msgs-per-op 55.789295},
+               :clients {:send-count 3650, :recv-count 3650, :msg-count 3650},
+               :servers {:send-count 95376,
+                         :recv-count 95376,
+                         :msg-count 95376,
+                         :msgs-per-op 53.732956},
+               :valid? true},
+        ...
+
+        :stable-latencies {
+            0 0, 
+            0.5 450, 
+            0.95 673, 
+            0.99 739, 
+            1 807
+        },
+        ```
+    - `--topology line`
+        ```
+        ...
+         :net {:all {:send-count 46774,
+                     :recv-count 46774,
+                     :msg-count 46774,
+                     :msgs-per-op 25.51773},
+               :clients {:send-count 3766, :recv-count 3766, :msg-count 3766},
+               :servers {:send-count 43008,
+                         :recv-count 43008,
+                         :msg-count 43008,
+                         :msgs-per-op 23.463175},
+               :valid? true},
+
+        ...
+
+        :stable-latencies {0 0, 
+                           0.5 1561, 
+                           0.95 2266, 
+                           0.99 2365, 
+                           1 2423},
+        ```
+    - `--topology tree4`
+        ```
+        ... 
+
+         :net {:all {:send-count 45308,
+                     :recv-count 45308,
+                     :msg-count 45308,
+                     :msgs-per-op 26.280743},
+               :clients {:send-count 3548, :recv-count 3548, :msg-count 3548},
+               :servers {:send-count 41760,
+                         :recv-count 41760,
+                         :msg-count 41760,
+                         :msgs-per-op 24.222738},
+               :valid? true},
+        ...
+
+        :stable-latencies {0 0,
+                           0.5 377,
+                           0.95 494,
+                           0.99 506,
+                           1 521},
+        ```
+
 ## Side Notes
 - [Having multiple binaries in a single project](https://ieftimov.com/posts/golang-package-multiple-binaries)
     - Mainly because I didn't want to scatter these challenges in different repos

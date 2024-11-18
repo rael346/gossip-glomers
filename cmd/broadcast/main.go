@@ -40,14 +40,15 @@ func (s *state) handleBroadcast(msg maelstrom.Message) error {
 		return err
 	}
 
+	s.node.Reply(msg, ResBody{
+		Type: "broadcast_ok",
+	})
+
 	if s.store.ContainsOne(body.Message) {
 		return nil
 	}
 
 	s.store.Add(body.Message)
-	s.node.Reply(msg, ResBody{
-		Type: "broadcast_ok",
-	})
 
 	queue := s.neighbor.Clone()
 	queue.Remove(msg.Src)
