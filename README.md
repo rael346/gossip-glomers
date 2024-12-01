@@ -111,8 +111,21 @@ make broadcast-d
                            1 521},
         ```
 
+# 3e: Efficient Broadcast, Part II
+```sh
+make broadcast-e
+```
+- The main goal for this challenge is to lower the `msgs-per-op` in exchange for higher latency throughout the system. 
+- The simplest solution is to batch broadcast the messages instead of single broadcasts like the previous challenge.
+    - **Goroutine for each neighboring node**: In the previous challenge, I got away with just iterating through the neighbors and sending the messsages to them. But to decrease the latency, I put each of the neighbor's broadcast (the broadcast with the neighbor as the destination) into a goroutine so they don't need to wait on each other (because of `time.Sleep()`)
+        - Using `context` to timeout the request is very useful in implementing a timed request
+        - Using Go's channel as a queue for the messages is very convenient since it acts as a FIFO queue data structure and is thread-safe by default
+    - **Background scheduler for sending batch broadcast**: sending a broadcast after every single received message can only work with single-message broadcast. Instead, have a separate goroutine that runs every 300ms to send every message in the message channel to the neighboring node. This also ensure that a single goroutine can read from the channel, which is less concurrency bug to deal with. 
+
 ## Side Notes
 - [Having multiple binaries in a single project](https://ieftimov.com/posts/golang-package-multiple-binaries)
     - Mainly because I didn't want to scatter these challenges in different repos
 - Multiline shell commands just means escaping the newline character (`\n`), hence the backslash `\` at the end of each shell 
 - Using `omitempty` in Go for JSON marshal/unmarshal will remove the field if it is the default value for that field's type (0 for int, "" for string, etc). So to differentiate between a field that is actually empty from a field specifically sets as the default value, make that field a pointer and check for `nil` instead. 
+
+
