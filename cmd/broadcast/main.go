@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log"
+	"sync"
 	"time"
 
 	mapset "github.com/deckarep/golang-set/v2"
@@ -24,14 +26,19 @@ type ReqBody struct {
 
 	// Broadcast
 	Topology Topology `json:"topology,omitempty"`
-	Message  int      `json:"message,omitempty"`
+	Message  *int     `json:"message,omitempty"`
+	Messages *[]int   `json:"messages,omitempty"`
 }
 
 type state struct {
 	store    mapset.Set[int]
+	newStore map[int]struct{}
+	mu       sync.RWMutex
+
 	topo     Topology
 	neighbor mapset.Set[string]
 	node     *maelstrom.Node
+	queue    chan int
 }
 
 func (s *state) handleBroadcast(msg maelstrom.Message) error {
@@ -44,33 +51,82 @@ func (s *state) handleBroadcast(msg maelstrom.Message) error {
 		Type: "broadcast_ok",
 	})
 
-	if s.store.ContainsOne(body.Message) {
-		return nil
+	log.Printf("DEBUG: src %s", msg.Src)
+	if body.Messages != nil {
+		log.Printf("DEBUG: batch received %v", *body.Messages)
+		s.mu.Lock()
+		for _, newMsg := range *body.Messages {
+			if _, ok := s.newStore[newMsg]; ok {
+				continue
+			}
+
+			s.newStore[newMsg] = struct{}{}
+			s.queue <- newMsg
+		}
+		s.mu.Unlock()
 	}
 
-	s.store.Add(body.Message)
-
-	queue := s.neighbor.Clone()
-	queue.Remove(msg.Src)
-
-	for !queue.IsEmpty() {
-		for _, dst := range queue.ToSlice() {
-			s.node.RPC(dst, ReqBody{
-				Type:    "broadcast",
-				Message: body.Message,
-			}, func(msg maelstrom.Message) error {
-				queue.Remove(dst)
-				return nil
-			})
+	if body.Message != nil {
+		log.Printf("DEBUG: single received %d", *body.Message)
+		s.mu.Lock()
+		newMsg := *body.Message
+		if _, ok := s.newStore[newMsg]; ok {
+			s.mu.Unlock()
+			return nil
 		}
-		time.Sleep(1 * time.Second)
+
+		log.Printf("DEBUG: add new val %d", newMsg)
+		s.newStore[newMsg] = struct{}{}
+		s.queue <- newMsg
+		s.mu.Unlock()
 	}
 
 	return nil
 }
 
+func (s *state) batchBroadcast() {
+	msgs := make([]int, 0, len(s.queue))
+	for range len(s.queue) {
+		msgs = append(msgs, <-s.queue)
+	}
+	if len(msgs) == 0 {
+		return
+	}
+
+	log.Printf("DEBUG: batch broadcast %v", msgs)
+
+	queue := s.neighbor.Clone()
+	for _, dst := range queue.ToSlice() {
+		go func() {
+			for queue.ContainsOne(dst) {
+				if err := s.RPC(dst, ReqBody{
+					Type:     "broadcast",
+					Messages: &msgs,
+				}); err != nil {
+					continue
+				}
+				queue.Remove(dst)
+			}
+		}()
+	}
+}
+
+func (s *state) RPC(dst string, body any) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	_, err := s.node.SyncRPC(ctx, dst, body)
+	return err
+}
+
 func (s *state) handleRead(msg maelstrom.Message) error {
-	copyStore := s.store.ToSlice()
+	// copyStore := s.store.ToSlice()
+
+	copyStore := make([]int, 0, len(s.newStore))
+	s.mu.RLock()
+	for val := range s.newStore {
+		copyStore = append(copyStore, val)
+	}
+	s.mu.RUnlock()
 
 	return s.node.Reply(msg, ResBody{
 		Type:     "read_ok",
@@ -93,13 +149,23 @@ func (s *state) handleTopo(msg maelstrom.Message) error {
 
 func main() {
 	s := state{
-		store: mapset.NewSet[int](),
-		node:  maelstrom.NewNode(),
+		node:     maelstrom.NewNode(),
+		queue:    make(chan int, 100),
+		newStore: map[int]struct{}{},
+		store:    mapset.NewSet[int](),
 	}
 
 	s.node.Handle("broadcast", s.handleBroadcast)
 	s.node.Handle("read", s.handleRead)
 	s.node.Handle("topology", s.handleTopo)
+
+	go func() {
+		ticker := time.NewTicker(250 * time.Millisecond)
+
+		for range ticker.C {
+			s.batchBroadcast()
+		}
+	}()
 
 	if err := s.node.Run(); err != nil {
 		log.Fatal(err)

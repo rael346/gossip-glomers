@@ -58,3 +58,14 @@ broadcast-d:
 		--rate 100 \
 		--latency 100 \
 		--topology total \
+
+broadcast-e:
+	go build -o build/broadcast cmd/broadcast/main.go
+	./maelstrom test \
+		-w broadcast \
+		--bin ./build/broadcast \
+		--node-count 25 \
+		--time-limit 20 \
+		--rate 100 \
+		--latency 100 \
+		--topology tree4 \
