@@ -69,3 +69,13 @@ broadcast-e:
 		--rate 100 \
 		--latency 100 \
 		--topology tree4 \
+
+counter:
+	go build -o build/counter cmd/counter/main.go
+	./maelstrom test \
+		-w g-counter \
+		--bin ./build/counter \
+		--node-count 3 \
+		--rate 100 \
+		--time-limit 20 \
+		--nemesis partition \
